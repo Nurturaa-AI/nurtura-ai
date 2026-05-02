@@ -1,27 +1,34 @@
-// Main dashboard page — proper dark mode text throughout
+// Main dashboard page
+// Now fetches real leads from Supabase instead of mock data
+
+// This makes the page a server component
+// Server components can fetch data directly without useEffect
+// They run on the server so the data is ready before the page loads
 
 import StatsCards from "@/app/components/stats-cards";
 import LeadsTable from "@/app/components/leads-table";
-import { mockLeads } from "@/app/data/mock-leads";
+import { getLeads } from "@/app/lib/leads";
 
-export default function Home() {
+export default async function Home() {
+  // Fetch real leads from Supabase
+  // Because this is a server component we can use async/await directly
+  // No useEffect or useState needed
+  const leads = await getLeads();
+
   return (
-    // bg-slate-50 in light, deep indigo-dark in dark
     <div className="p-8 min-h-screen bg-slate-50 dark:bg-transparent">
       {/* Page header */}
       <div className="mb-8 flex items-start justify-between">
         <div>
-          {/* text-slate-900 in light, white in dark */}
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
             Lead Dashboard
           </h1>
-          {/* text-slate-400 in light, slate-500 in dark */}
           <p className="text-slate-400 dark:text-slate-500 text-sm mt-1">
             All incoming Instagram leads in one place
           </p>
         </div>
 
-        {/* Live indicator badge */}
+        {/* Live indicator */}
         <div
           className="
           flex items-center gap-2 text-xs font-medium
@@ -39,8 +46,8 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Stats cards */}
-      <StatsCards leads={mockLeads} />
+      {/* Stats — now uses real data */}
+      <StatsCards leads={leads} />
 
       {/* Table section */}
       <div>
@@ -48,7 +55,6 @@ export default function Home() {
           <h2 className="text-base font-semibold text-slate-700 dark:text-slate-300">
             Recent Leads
           </h2>
-
           <span
             className="
             text-xs font-medium
@@ -58,11 +64,12 @@ export default function Home() {
             px-3 py-1 rounded-full
           "
           >
-            {mockLeads.length} total
+            {leads.length} total
           </span>
         </div>
 
-        <LeadsTable leads={mockLeads} />
+        {/* LeadsTable now receives real leads from Supabase */}
+        <LeadsTable leads={leads} />
       </div>
     </div>
   );
