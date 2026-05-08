@@ -4,7 +4,8 @@
 // 2. POST — real events like new DMs, comments, story replies
 
 import { NextRequest, NextResponse } from "next/server";
-import { createLead } from "@/app/lib/leads";
+import { createLead, updateLeadScore } from "@/app/lib/leads";
+import { qualifyLead } from "@/app/lib/qualify";
 
 // ─── GET ─────────────────────────────────────────────────────────────────────
 // Meta calls this once when you register your webhook URL
@@ -38,20 +39,13 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ error: "Verification failed" }, { status: 403 });
 }
 
-// ─── POST ────────────────────────────────────────────────────────────────────
-// Meta sends this every time a real event happens
-// A new DM, a comment, a story reply — they all arrive here
-
+// ─── POST handler — now with AI qualification ─────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
-    // Parse the incoming JSON payload from Meta
     const body = await request.json();
 
-    // Log the full payload so we can see what Meta sends us
-    // Very helpful during development
     console.log("Webhook received:", JSON.stringify(body, null, 2));
 
-    // Edge case: make sure this is an Instagram event
     if (body.object !== "instagram") {
       return NextResponse.json(
         { error: "Not an Instagram event" },
@@ -59,53 +53,73 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Meta batches events — one POST can contain multiple entries
-    // We loop through each entry and each messaging event inside it
     const entries = body.entry ?? [];
 
     for (const entry of entries) {
-      // Each entry can have multiple messaging events
       const messagingEvents = entry.messaging ?? [];
 
       for (const event of messagingEvents) {
-        // We only care about message events — not read receipts or typing indicators
-        // event.message exists only for actual messages
         if (!event.message) continue;
-
-        // Edge case: ignore messages sent by the page itself
-        // Otherwise we'd create a lead every time we reply to someone
         if (event.message.is_echo) continue;
 
-        // Extract the sender's Instagram ID and their message text
         const senderId = event.sender?.id ?? "unknown";
         const messageText = event.message?.text ?? "";
 
-        // Save this as a new lead in Supabase
-        // We don't have AI scoring yet — score starts at 0
-        // We'll add AI qualification in the next step
-        await createLead({
+        // Step 1 — Save the lead immediately with score 0
+        // We save first so the lead is never lost even if AI fails
+        const lead = await createLead({
           tenant_id: "default",
-          // We use the sender ID as the Instagram handle for now
-          // Later we'll call the Graph API to get their real username
           instagram: senderId,
           message: messageText,
           score: 0,
           tag: "cold",
           status: "new",
-          // Store the full raw event so we never lose any data
           raw_payload: event,
         });
 
-        console.log(`New lead saved: ${senderId} — "${messageText}"`);
+        console.log(`Lead saved: ${senderId} — "${messageText}"`);
+
+        // Step 2 — Run AI qualification on the message
+        // This happens after saving so we never lose a lead
+        if (lead && messageText) {
+          console.log(`Qualifying lead ${lead.id}...`);
+
+          const qualification = await qualifyLead(messageText);
+
+          // Step 3 — Update the lead with AI results
+          await updateLeadScore(
+            lead.id,
+            qualification.score,
+            qualification.tag,
+          );
+
+          // Also save the suggested reply and reason
+          // We'll add this to updateLeadScore in the next step
+          const { error } = await (
+            await import("@/app/lib/supabase")
+          ).supabase
+            .from("leads")
+            .update({
+              suggested_reply: qualification.suggestedReply,
+              ai_reason: qualification.reason,
+            })
+            .eq("id", lead.id);
+
+          if (error) {
+            console.error("Failed to save AI results:", error.message);
+          } else {
+            console.log(
+              `Lead qualified: score=${qualification.score} ` +
+                `tag=${qualification.tag} — ${qualification.reason}`,
+            );
+          }
+        }
       }
     }
 
-    // Always return 200 quickly — Meta will retry if you don't respond fast
-    // If Meta doesn't get a 200 within 20 seconds it marks your webhook as failing
+    // Always return 200 quickly
     return NextResponse.json({ status: "ok" }, { status: 200 });
   } catch (error) {
-    // Edge case: something went wrong parsing or saving
-    // We still return 200 to stop Meta from retrying endlessly
     console.error("Webhook error:", error);
     return NextResponse.json({ error: "Internal error" }, { status: 200 });
   }

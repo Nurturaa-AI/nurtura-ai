@@ -9,5 +9,10 @@ export type Lead = {
   score: number; // AI score from 0 to 100
   tag: "hot" | "warm" | "cold"; // only these three values allowed
   status: "new" | "contacted" | "booked" | "closed"; // where they are in the pipeline
+  // AI-generated suggested reply for this lead
+  // Optional because old leads won't have this yet
+  suggested_reply?: string;
+  // Why the AI gave this score — helps you understand the reasoning
+  ai_reason?: string;
   created_at: string; // when they first reached out
 };
